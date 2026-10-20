@@ -1,0 +1,67 @@
+Build a native Android app called "KehadiranPro" (package com.kehadiranpro) with Kotlin and Jetpack Compose (Material 3). UI language: Bahasa Malaysia. Code comments: English. minSdk 24, targetSdk 34.
+
+IMPORTANT: every quoted string below is user-visible UI copy. Reproduce it exactly, including punctuation and capitalisation. Never translate it, never reflow it, and never insert a line break inside a quoted string.
+
+PURPOSE: worker attendance for a Malaysian construction site. One phone sits at the site entrance. Workers type their name, pick a department, and tap check-in or check-out. Everything is offline; the phone stores the day's records.
+
+DEPENDENCIES: AndroidX core-ktx, activity-compose, compose BOM, material3, lifecycle-runtime-compose, kotlinx-coroutines-android. Do NOT add Retrofit, Room, Hilt or any networking/DI library. Use SharedPreferences + org.json for storage and HttpURLConnection for the one optional network call.
+
+DATA MODEL
+
+Record fields: id (String), name (String), jabatan (String), type ("masuk" or "keluar"), timestamp (ISO-8601 String), time ("HH:mm:ss"), date ("DD/MM/YYYY"), dateKey ("YYYY-MM-DD"), status ("Baik" or "Lewat").
+
+Storage: SharedPreferences key "kehadiran_<dateKey>", value = JSON array of records. Sort by timestamp ascending when reading.
+
+BUSINESS RULES (implement exactly)
+
+1. Departments are exactly: Operator, Teknikal, Pengawas. Default Operator.
+2. Trim the name and collapse inner whitespace. Identity is case-insensitive, so " ahmad  bin ali " and "Ahmad Bin Ali" are the same worker.
+3. A check-in later than 08:30:00 gets status "Lewat". Exactly 08:30:00 is "Baik". 08:30:01 is "Lewat". Check-out records are always "Baik".
+4. Duplicate check-in: if the worker already has a check-in today with no matching check-out, block it. AlertDialog title "Tidak Boleh Daftar Masuk", body "<nama> sudah mendaftar masuk pada <HH:mm:ss> dan belum mendaftar keluar. Sila tekan DAFTAR KELUAR dahulu." — replace <nama> and <HH:mm:ss> with the values of the open check-in.
+5. Check-out without a check-in: AlertDialog title "Tidak Boleh Daftar Keluar", body "Tiada rekod masuk untuk <nama> hari ini. Sila tekan DAFTAR MASUK dahulu."
+6. Name shorter than 2 characters: AlertDialog title "Nama Diperlukan", body "Sila masukkan nama pekerja sebelum mendaftar." Write nothing to storage.
+7. After a successful save, show a confirmation dialog with the name, time and status, then clear the name field but keep the selected department.
+8. Corrupt JSON, a non-array value, or a null in SharedPreferences must be treated as an empty list. Never crash. Skip entries missing name, type or timestamp.
+9. Records are bucketed per calendar day, keyed by the device's local date.
+
+SCREENS
+
+Bottom navigation bar with 4 items. Minimum touch height 56dp, minimum text size 16sp, white cards with 12dp corner radius on a #f1f3f4 background, top app bar #1a73e8 with white text.
+
+Tab 1 "Daftar" (icon: check_circle)
+- Live clock "HH:mm:ss" and date "DD/MM/YYYY" in a blue card, plus the caption "Waktu masuk standard: 08:30 pagi. Selepas itu ditanda LEWAT."
+- OutlinedTextField labelled "Nama Pekerja" with placeholder "Contoh: Ahmad bin Ali".
+- Department dropdown labelled "Jabatan" with the three options, 56dp rows.
+- Two full-width buttons, 56dp tall, 18sp bold: "DAFTAR MASUK" in green #1e8e3e, then "DAFTAR KELUAR" in red #d93025.
+- If the typed name matches a worker who is still checked in, show an info box reading "<nama> sudah masuk pada <HH:mm:ss> dan belum keluar."
+- Below the form, a section "Aktiviti Terkini" listing the last three records with a status badge.
+
+Tab 2 "Rekod" (icon: list)
+- One card with three counters: "Hadir", "Lewat", "Sudah Keluar". Hadir = distinct workers checked in today. Lewat = number of late check-ins. Sudah Keluar = distinct workers with a check-out.
+- LazyColumn of today's records, newest first. Each row shows the name, the line "<jabatan> · Masuk · <HH:mm:ss>" for check-ins (use "· Keluar ·" for check-outs), a rounded badge "Baik" in green or "Lewat" in red, and the record date.
+- Empty state: title "Tiada rekod hari ini", body "Tekan tab Daftar untuk merekod kehadiran pekerja."
+
+Tab 3 "Eksport" (icon: download)
+- Button "EKSPORT CSV".
+- Write a file named kehadiran_<dateKey>.csv. On API 29+ use MediaStore.Downloads so it lands in the public Downloads folder; on older versions use the app-specific external files directory.
+- CSV content: first line exactly "Nama,Jabatan,Jenis,Masa,Tarikh,Status". Then one row per record, oldest first, with Jenis = "Masuk" for check-ins and "Keluar" for check-outs. Line endings CRLF. RFC 4180 quoting: if a value contains a comma, a double quote or a newline, wrap the whole value in double quotes and double any inner double quote. Start the file with a UTF-8 BOM (bytes EF BB BF) so Excel renders Malay text correctly.
+- If there are no records, show AlertDialog title "Eksport Gagal" and body "Tiada rekod untuk dieksport pada tarikh ini." and write no file.
+- After a successful write, show the file name and a button "KONGSI (WhatsApp)" that shares the file as a FileProvider content Uri through Intent.ACTION_SEND with type text/csv. If WhatsApp is installed set the package to com.whatsapp, otherwise fall back to the system share sheet.
+- Declare the FileProvider in AndroidManifest.xml with authority "${applicationId}.fileprovider" and a matching res/xml/file_paths.xml.
+
+Tab 4 "Ringkasan AI" (icon: auto_awesome) — OPTIONAL network feature
+- Show today's counters, then a button "JANA RINGKASAN AI".
+- On tap, POST JSON with HttpURLConnection to AI_PROXY_URL, header "x-app-key" set to AI_APP_KEY. Body shape: {"date":"DD/MM/YYYY","pekerja":[{"nama":"...","jabatan":"...","masuk":"HH:mm:ss","keluar":"HH:mm:ss or empty","status":"Baik or Lewat"}],"ringkasan":{"hadir":0,"lewat":0,"sudah_keluar":0}}. Emit one pekerja entry per worker: earliest check-in time, latest check-out time (empty string when absent), and the status of that check-in.
+- Parse the reply {"ok":true,"ringkasan":"...","amaran":["..."],"cadangan":"..."} and render the summary paragraph, a "Perlu perhatian" list of warnings, then "Cadangan". Add a button "KONGSI RINGKASAN" that shares the text.
+- AI_PROXY_URL and AI_APP_KEY are compile-time constants at the top of the file, both placeholders. NEVER put a DeepSeek, OpenAI or Gemini API key inside the app.
+- Failure copy, all in Bahasa Malaysia: no connectivity shows "Tiada sambungan internet. Ringkasan AI memerlukan data mudah alih atau Wi-Fi." A 30 second timeout shows "Pelayan mengambil masa terlalu lama. Cuba lagi." Any other failure shows the server's message field when present, otherwise "Pelayan AI memulangkan ralat."
+- Always show the note "Nota privasi: nama, jabatan dan masa kehadiran hari ini dihantar ke pelayan DeepSeek untuk diproses. Tiada data disimpan di pelayan selepas jawapan dipulangkan."
+- Disable the button when there are no records for today.
+
+QUALITY REQUIREMENTS
+
+- No crashes on empty input, rapid double taps, or corrupt stored JSON.
+- Wrap every storage read and write in try/catch and degrade to an empty list or a Malay error message.
+- Disable both action buttons while a save is in flight, so one tap produces exactly one record.
+- Keep the app in a small number of files: MainActivity.kt, ui/CheckInScreen.kt, ui/RekodScreen.kt, ui/EksportScreen.kt, ui/RingkasanScreen.kt, data/AttendanceStore.kt, data/AttendanceRules.kt, util/Csv.kt, util/Dates.kt.
+- Add a short README in the project explaining how to change AI_PROXY_URL and AI_APP_KEY.

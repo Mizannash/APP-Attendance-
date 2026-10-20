@@ -1,0 +1,17 @@
+{
+  "name": "kehadiranpro-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker that proxies KehadiranPro's daily attendance summary to DeepSeek.",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "mock": "node mock-deepseek.js",
+    "dev:wrangler": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}

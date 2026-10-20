@@ -1,0 +1,195 @@
+name: Android Release
+
+# Builds a signed AAB + APK on GitHub's runners, so no Android SDK is needed on
+# the developer's machine. Verifies that the shipped bundle is real Hermes
+# bytecode, then optionally uploads to a Play track and/or Firebase App
+# Distribution.
+#
+# Required secrets (Settings > Secrets and variables > Actions):
+#   KEYSTORE_BASE64            base64 of android/app/kehadiranpro-release.keystore
+#   KEYSTORE_PASSWORD          store password
+#   KEY_ALIAS                  key alias (e.g. kehadiranpro)
+#   KEY_PASSWORD               key password
+# Optional secrets:
+#   PLAY_SERVICE_ACCOUNT_JSON  full JSON of a Play Console service account
+#   FIREBASE_APP_ID            Firebase Android app id (1:...:android:...)
+#   FIREBASE_SERVICE_ACCOUNT   full JSON of a service account with the
+#                              "Firebase App Distribution Admin" role
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play track to upload the AAB to'
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      version_name:
+        description: 'versionName (e.g. 1.0.0)'
+        type: string
+        default: '1.0.0'
+      distribute_firebase:
+        description: 'Also distribute the APK to Firebase App Distribution'
+        type: boolean
+        default: true
+      release_notes:
+        description: 'Release notes shown to testers'
+        type: string
+        default: 'KehadiranPro — ujian lapangan'
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # Exposed at job level because the `secrets` context is not allowed inside
+    # step `if:` expressions — only `env` is.
+    env:
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.3'
+          cache-read-only: false
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      # The Gradle wrapper jar is a binary produced by `react-native init`.
+      # If this repo was assembled without it, generate a matching wrapper.
+      - name: Ensure Gradle wrapper
+        run: |
+          if [ ! -f android/gradlew ]; then
+            echo "gradlew missing — generating wrapper 8.3"
+            (cd android && gradle wrapper --gradle-version 8.3 --distribution-type bin)
+          fi
+          chmod +x android/gradlew
+
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is not set — refusing to build a debug-signed release."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/kehadiranpro-release.keystore
+
+      - name: Write keystore.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          {
+            echo "KEPASS_STORE_FILE=kehadiranpro-release.keystore"
+            echo "KEPASS_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "KEPASS_KEY_ALIAS=$KEY_ALIAS"
+            echo "KEPASS_KEY_PASSWORD=$KEY_PASSWORD"
+          } > android/keystore.properties
+
+      - name: Compute version
+        id: version
+        run: |
+          # Monotonic per run, starting at 1000 so it never collides with a
+          # hand-made build. Play rejects a versionCode that already exists.
+          CODE=$((1000 + GITHUB_RUN_NUMBER))
+          NAME="${{ inputs.version_name }}"
+          if [ -z "$NAME" ]; then NAME="1.0.0"; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Building versionCode=$CODE versionName=$NAME"
+
+      - name: Build signed AAB and APK
+        run: |
+          cd android
+          ./gradlew bundleRelease assembleRelease --no-daemon \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }}
+
+      - name: Verify the shipped bundle is Hermes bytecode
+        run: |
+          set -euo pipefail
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          ls -lh "$AAB" "$APK"
+
+          # Inside an AAB the bundle lives at base/assets/index.android.bundle
+          unzip -p "$AAB" base/assets/index.android.bundle > /tmp/aab.bundle
+          unzip -p "$APK" assets/index.android.bundle > /tmp/apk.bundle
+
+          for f in /tmp/aab.bundle /tmp/apk.bundle; do
+            MAGIC=$(od -An -tx1 -N4 "$f" | tr -d ' \n')
+            echo "$f magic=$MAGIC"
+            if [ "$MAGIC" != "c61fbc03" ]; then
+              echo "::error::$f is not Hermes bytecode (got $MAGIC). hermesEnabled is probably off."
+              exit 1
+            fi
+          done
+          echo "### Hermes bytecode verified in both artifacts" >> "$GITHUB_STEP_SUMMARY"
+          du -h /tmp/aab.bundle /tmp/apk.bundle >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kehadiranpro-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Upload AAB to Google Play
+        if: ${{ github.event_name == 'workflow_dispatch' && env.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ env.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.kehadiranpro
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.track }}
+          status: completed
+          releaseName: ${{ steps.version.outputs.name }} (${{ steps.version.outputs.code }})
+
+      - name: Distribute APK to Firebase App Distribution
+        if: ${{ env.FIREBASE_APP_ID != '' && (github.event_name == 'push' || inputs.distribute_firebase) }}
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ env.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ env.FIREBASE_SERVICE_ACCOUNT }}
+          groups: testers
+          file: android/app/build/outputs/apk/release/app-release.apk
+          releaseNotes: ${{ inputs.release_notes || 'KehadiranPro — ujian lapangan' }}

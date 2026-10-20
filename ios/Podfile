@@ -1,0 +1,56 @@
+# ============================================================================
+#  ios/Podfile — KehadiranPro
+#
+#  Hermes is explicitly enabled. RN 0.73's template already defaults to
+#  Hermes, but leaving the flag in makes the intent auditable and prevents a
+#  future upgrade from silently switching the iOS build to JSC.
+#
+#  Run `cd ios && pod install` (or `bundle exec pod install`) after npm install.
+#  The generated ios/ folder from `npx @react-native-community/cli init`
+#  supplies the Xcode project; only this Podfile and Info.plist need edits.
+# ============================================================================
+
+# Resolve react_native_pods.rb from the installed RN version.
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+end
+
+target 'KehadiranPro' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # --- Hermes -------------------------------------------------------------
+    :hermes_enabled => true,
+    # ------------------------------------------------------------------------
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  # MaterialIcons for react-native-vector-icons: the .ttf must also be listed
+  # in ios/KehadiranPro/Info.plist under UIAppFonts (see README).
+  pod 'RNVectorIcons', :path => '../node_modules/react-native-vector-icons'
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
+  end
+end
+
+# NOTE: `:hermes_enabled => true` is what pulls libhermes.a into the app and
+# makes the JS bundle compile to .hbc. Verify on device with the App.js
+# console check ("Hermes ACTIVE") in the Xcode console.

@@ -1,0 +1,61 @@
+name: Deploy AI proxy (Cloudflare Worker)
+
+# Deploys server/deepseek-proxy when its files change on main, so the DeepSeek
+# key never has to exist on a developer laptop.
+#
+# Required secrets:
+#   CLOUDFLARE_API_TOKEN   token with "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID  from the Workers dashboard URL
+# Secrets on the Worker itself (set once, not in GitHub):
+#   DEEPSEEK_API_KEY, APP_SHARED_KEY   -> npx wrangler secret put <NAME>
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'server/deepseek-proxy/**'
+      - '.github/workflows/deploy-worker.yml'
+
+concurrency:
+  group: worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Job-level env so the Publish step can be skipped (not failed) before the
+    # Cloudflare secrets exist. The `secrets` context is not allowed in `if:`.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Test the Worker logic (no Cloudflare account needed)
+        run: node scripts/verify-worker.js
+
+      - name: Not configured yet
+        if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
+        run: |
+          echo "::notice::CLOUDFLARE_API_TOKEN is not set — skipping deploy. Add it in Settings > Secrets to enable."
+          echo "Worker tests passed; nothing was published." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: server/deepseek-proxy
+          command: deploy
+
+      - name: Reminder
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: |
+          echo "Worker deployed. Copy the printed URL into src/config.js"
+          echo "as AI_PROXY_URL and rebuild the app."

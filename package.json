@@ -1,0 +1,51 @@
+{
+  "name": "kehadiranpro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KehadiranPro — aplikasi kehadiran pekerja (React Native + Hermes)",
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "start:reset": "react-native start --reset-cache",
+    "build:apk": "cd android && ./gradlew assembleRelease",
+    "build:aab": "cd android && ./gradlew bundleRelease",
+    "release:check": "bash scripts/release-check.sh",
+    "dev:ai": "cd server/deepseek-proxy && node dev-server.js",
+    "dev:ai:mock": "cd server/deepseek-proxy && node mock-deepseek.js",
+    "test": "node scripts/verify-storage.js && node scripts/verify-ai.js && node scripts/verify-worker.js",
+    "test:storage": "node scripts/verify-storage.js",
+    "test:ai": "node scripts/verify-ai.js",
+    "test:worker": "node scripts/verify-worker.js",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-navigation/bottom-tabs": "6.5.20",
+    "@react-navigation/native": "6.1.17",
+    "moment": "2.30.1",
+    "react": "18.2.0",
+    "react-native": "0.73.9",
+    "react-native-fs": "2.20.0",
+    "react-native-safe-area-context": "4.9.0",
+    "react-native-screens": "3.30.1",
+    "react-native-share": "10.2.1",
+    "react-native-vector-icons": "10.0.3"
+  },
+  "devDependencies": {
+    "@babel/core": "7.23.9",
+    "@babel/preset-env": "7.23.9",
+    "@babel/runtime": "7.23.9",
+    "@react-native/babel-preset": "0.73.21",
+    "@react-native/eslint-config": "0.73.2",
+    "@react-native/metro-config": "0.73.5",
+    "eslint": "8.56.0",
+    "jest": "29.6.3",
+    "prettier": "2.8.8",
+    "react-test-renderer": "18.2.0",
+    "typescript": "5.3.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

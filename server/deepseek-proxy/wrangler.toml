@@ -1,0 +1,25 @@
+# Cloudflare Worker — KehadiranPro AI proxy
+#
+# Deploy:
+#   npx wrangler secret put DEEPSEEK_API_KEY   # sk-... dari platform.deepseek.com
+#   npx wrangler secret put APP_SHARED_KEY     # rentetan rawak panjang
+#   npx wrangler deploy
+#
+# Secrets are NOT written here. Everything below is non-sensitive config.
+
+name = "kehadiranpro-ai"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+DEEPSEEK_MODEL = "deepseek-flash"
+# Set to your app's origin if you ever call this from a web app; "*" is fine
+# for a native app because CORS does not protect native clients anyway.
+ALLOWED_ORIGIN = "*"
+DAILY_TOKEN_BUDGET = "200000"
+
+# Free plan: 100k requests/day, no card required.
+# Keep an eye on: Cloudflare dashboard > Workers > kehadiranpro-ai > Metrics.
+
+[[observability]]
+enabled = true

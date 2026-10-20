@@ -1,0 +1,42 @@
+# OSX / Windows
+.DS_Store
+Thumbs.db
+
+# node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Metro
+.metro-health-check*
+
+# bundle / hermesc output produced by scripts
+build/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.keystore
+!android/app/debug.keystore
+*.jks
+!debug.keystore
+
+# iOS
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+*.hmap
+
+# env / secrets
+.env
+.env.*
+
+# local dev secrets for the AI proxy
+server/deepseek-proxy/.dev.vars
+
+# coverage
+coverage/

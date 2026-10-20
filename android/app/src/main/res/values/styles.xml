@@ -1,0 +1,8 @@
+<resources>
+    <!-- Launch theme: white flash is replaced by the brand blue so the cold
+         start does not look like a blank screen on slow devices. -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- Brand blue behind the first frame: no white flash on cold start. -->
+        <item name="android:windowBackground">@color/brand_blue</item>
+    </style>
+</resources>
